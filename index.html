@@ -142,7 +142,6 @@
 						delete otherItem.dataset.isCurrent;
 					});
 					sendPlayerCommand(frame, 'play');
-					sendPlayerCommand(frame, 'unMute');
 				});
 			}, { root: feed, threshold: 0.7 }) : null;
 			let videos = loadVideos();
@@ -256,18 +255,17 @@
 
 					const frame = document.createElement('iframe');
 					frame.className = 'video-frame';
-					frame.dataset.playerSrc = `https://www.tiktok.com/player/v1/${video.id}?controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&autoplay=0&muted=0`;
+					frame.dataset.playerSrc = `https://www.tiktok.com/player/v1/${video.id}?controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&autoplay=1&muted=1`;
 					frame.title = `Video TikTok ${index + 1}`;
 					frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
 					frame.loading = 'lazy';
 					frame.addEventListener('load', () => {
-						if (item.dataset.playWhenReady === 'true') {
+						if (item.dataset.isCurrent === 'true' || item.dataset.playWhenReady === 'true') {
 							sendPlayerCommand(frame, 'play');
-							sendPlayerCommand(frame, 'unMute');
 						}
-						if (item.dataset.isCurrent === 'true') {
-							sendPlayerCommand(frame, 'play');
+						if (item.dataset.soundOnReady === 'true') {
 							sendPlayerCommand(frame, 'unMute');
+							delete item.dataset.soundOnReady;
 						}
 					});
 
@@ -284,9 +282,9 @@
 							return;
 						}
 						item.dataset.isCurrent = 'true';
+						item.dataset.soundOnReady = 'true';
 						loadPlayer(item);
 						sendPlayerCommand(frame, 'play');
-						sendPlayerCommand(frame, 'unMute');
 					});
 					item.append(frame, tapTarget);
 					feed.append(item);
@@ -339,8 +337,7 @@
 				nextItem.querySelector('.tap-target').setAttribute('aria-label', 'Jeda video');
 				nextItem.scrollIntoView({ behavior: 'smooth', block: 'start' });
 				const nextFrame = nextItem.querySelector('iframe');
-					sendPlayerCommand(nextFrame, 'play');
-					sendPlayerCommand(nextFrame, 'unMute');
+				sendPlayerCommand(nextFrame, 'play');
 			}
 
 			document.querySelectorAll('[data-view]').forEach(button => {
