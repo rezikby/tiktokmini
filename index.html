@@ -108,16 +108,29 @@
 				frame.contentWindow?.postMessage({ type, 'x-tiktok-player': true }, '*');
 			}
 
+			function loadPlayer(item) {
+				const frame = item.querySelector('iframe');
+				if (frame && !frame.hasAttribute('src')) frame.src = frame.dataset.playerSrc;
+				return frame;
+			}
+
 			const feedObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
 				entries.forEach(entry => {
 					const item = entry.target;
-					if (!entry.isIntersecting) {
+					if (!entry.isIntersecting || entry.intersectionRatio < 0.7) {
+						if (item.dataset.isCurrent === 'true') {
+							item.dataset.isCurrent = 'false';
+							item.dataset.playerState = '2';
+							const frame = item.querySelector('iframe');
+							sendPlayerCommand(frame, 'pause');
+							frame.removeAttribute('src');
+						}
 						delete item.dataset.isCurrent;
 						return;
 					}
 					item.dataset.isCurrent = 'true';
 					item.dataset.playerState = '1';
-					const frame = item.querySelector('iframe');
+					const frame = loadPlayer(item);
 					item.querySelector('.tap-target').setAttribute('aria-label', 'Jeda video');
 					feed.querySelectorAll('.feed-item').forEach(otherItem => {
 						if (otherItem === item) return;
@@ -125,6 +138,8 @@
 						otherItem.querySelector('.tap-target').setAttribute('aria-label', 'Putar video');
 						const otherFrame = otherItem.querySelector('iframe');
 						sendPlayerCommand(otherFrame, 'pause');
+						otherFrame.removeAttribute('src');
+						delete otherItem.dataset.isCurrent;
 					});
 					sendPlayerCommand(frame, 'play');
 					sendPlayerCommand(frame, 'unMute');
@@ -241,10 +256,10 @@
 
 					const frame = document.createElement('iframe');
 					frame.className = 'video-frame';
-					frame.src = `https://www.tiktok.com/player/v1/${video.id}?controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&autoplay=${index === 0 ? 1 : 0}&muted=0`;
+					frame.dataset.playerSrc = `https://www.tiktok.com/player/v1/${video.id}?controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&autoplay=0&muted=0`;
 					frame.title = `Video TikTok ${index + 1}`;
 					frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
-					frame.loading = index === 0 ? 'eager' : 'lazy';
+					frame.loading = 'lazy';
 					frame.addEventListener('load', () => {
 						if (item.dataset.playWhenReady === 'true') {
 							sendPlayerCommand(frame, 'play');
@@ -264,12 +279,22 @@
 						const isPlaying = item.dataset.playerState === '1';
 						item.dataset.playerState = isPlaying ? '2' : '1';
 						tapTarget.setAttribute('aria-label', isPlaying ? 'Putar video' : 'Jeda video');
-						sendPlayerCommand(frame, isPlaying ? 'pause' : 'play');
-						if (!isPlaying) sendPlayerCommand(frame, 'unMute');
+						if (isPlaying) {
+							sendPlayerCommand(frame, 'pause');
+							return;
+						}
+						item.dataset.isCurrent = 'true';
+						loadPlayer(item);
+						sendPlayerCommand(frame, 'play');
+						sendPlayerCommand(frame, 'unMute');
 					});
 					item.append(frame, tapTarget);
 					feed.append(item);
 					feedObserver?.observe(item);
+					if (!feedObserver && index === 0) {
+						item.dataset.isCurrent = 'true';
+						loadPlayer(item);
+					}
 				});
 
 				const hasVideos = videos.length > 0;
