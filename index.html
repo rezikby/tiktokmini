@@ -154,15 +154,34 @@
 				return items;
 			}
 
+			function normalizeTikTokUrl(value) {
+				const trimmed = value.trim();
+				if (!trimmed) return null;
+				return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+			}
+
 			function videoIdFromUrl(value) {
+				const normalized = normalizeTikTokUrl(value);
+				if (!normalized) return null;
+
 				let parsed;
 				try {
-					parsed = new URL(value);
+					parsed = new URL(normalized);
 				} catch {
 					return null;
 				}
-				if (!/(^|\.)tiktok\.com$/i.test(parsed.hostname)) return null;
-				return parsed.pathname.match(/\/video\/(\d{8,25})/)?.[1] || null;
+
+				const hostname = parsed.hostname.toLowerCase();
+				if (!hostname.endsWith('tiktok.com')) return null;
+
+				const path = parsed.pathname.toLowerCase();
+				const directMatch = path.match(/(?:^|\/)(?:video|v|embed)\/(\d{8,25})(?:\.html)?(?:\/)?/)?.[1]
+					|| path.match(/\/+(\d{8,25})(?:\.html)?(?:\/)?$/)?.[1]
+					|| new URLSearchParams(parsed.search).get('video_id')
+					|| new URLSearchParams(parsed.search).get('id');
+
+				if (!directMatch) return null;
+				return /^\d{8,25}$/.test(directMatch) ? directMatch : null;
 			}
 
 			function showView(name) {
@@ -274,7 +293,7 @@
 				const url = urlInput.value.trim();
 				const id = videoIdFromUrl(url);
 				if (!id) {
-					formMessage.textContent = 'Link belum dikenali. Tempel link lengkap yang memuat /video/ID.';
+					formMessage.textContent = 'Link belum dikenali. Tempel link TikTok yang memuat ID video, misalnya /video/1234567890123456789 atau /v/1234567890123456789.html.';
 					formMessage.classList.add('is-error');
 					return;
 				}
