@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="id">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#090a09">
+	<title>putar — TikTok mini</title>
+	<link rel="stylesheet" href="index.css">
+</head>
+<body class="is-home">
+	<div class="app-shell">
+		<header class="topbar">
+			<a class="brand" href="#beranda" aria-label="putar beranda">
+				<span class="brand-mark" aria-hidden="true">p.</span>
+				<span>putar</span>
+			</a>
+			<span class="topbar-note">koleksi video pilihanmu</span>
+		</header>
+		<button class="home-settings" type="button" data-view="settings" aria-label="Buka pengaturan" title="Pengaturan">
+			<span aria-hidden="true">⚙</span>
+		</button>
+
+		<main class="main-layout">
+			<aside class="sidebar" aria-label="Navigasi utama">
+				<p class="side-label">RUANG KAMU</p>
+				<button class="nav-item is-active" type="button" data-view="home" aria-current="page">
+					<span class="nav-icon" aria-hidden="true">◫</span>Beranda
+				</button>
+				<button class="nav-item" type="button" data-view="settings">
+					<span class="nav-icon" aria-hidden="true">⚙</span>Pengaturan
+				</button>
+				<div class="sidebar-footer">
+					<span class="status-dot"></span>
+					<span id="saved-count">0 video tersimpan</span>
+				</div>
+			</aside>
+
+			<section class="view home-view" id="home-view" aria-label="Beranda">
+				<div class="feed" id="feed" aria-live="polite"></div>
+				<div class="empty-state" id="empty-state" hidden>
+					<h2>Belum ada video</h2>
+				</div>
+			</section>
+
+			<section class="view settings-view" id="settings-view" aria-label="Pengaturan" hidden>
+				<div class="view-heading settings-heading">
+					<div>
+						<p class="eyebrow">ATUR KOLEKSIMU</p>
+						<h1>Pengaturan<span class="heading-dot">.</span></h1>
+					</div>
+				</div>
+
+				<section class="settings-section">
+					<div class="section-heading">
+						<div>
+							<h2>Tambah video</h2>
+							<p>Tempel link video TikTok publik.</p>
+						</div>
+						<span class="section-index">01</span>
+					</div>
+					<form id="link-form" class="link-form">
+						<label class="field-label" for="tiktok-url">LINK TIKTOK</label>
+						<div class="input-row">
+							<input id="tiktok-url" name="url" type="url" inputmode="url" placeholder="https://www.tiktok.com/@.../video/..." autocomplete="url" required>
+							<button class="button button-coral" type="submit">Tambah <span aria-hidden="true">＋</span></button>
+						</div>
+						<p class="form-hint">Gunakan link video lengkap dari TikTok. Link pendek seperti vm.tiktok.com belum didukung.</p>
+						<p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+					</form>
+				</section>
+
+				<section class="settings-section collection-section">
+					<div class="section-heading">
+						<div>
+							<h2>Koleksi video</h2>
+							<p id="collection-description">Video tersimpan di perangkat ini.</p>
+						</div>
+						<span class="section-index">02</span>
+					</div>
+					<ul class="video-list" id="video-list"></ul>
+					<p class="list-empty" id="list-empty">Belum ada video. Link yang ditambahkan akan tersimpan otomatis.</p>
+				</section>
+				<p class="privacy-note"><span aria-hidden="true">↳</span> Koleksi disimpan di browser ini dan tidak dikirim ke server.</p>
+			</section>
+		</main>
+
+		<nav class="mobile-nav" aria-label="Navigasi utama">
+			<button class="mobile-nav-item is-active" type="button" data-view="home" aria-current="page"><span aria-hidden="true">◫</span>Beranda</button>
+			<button class="mobile-nav-item" type="button" data-view="settings"><span aria-hidden="true">⚙</span>Pengaturan</button>
+		</nav>
+	</div>
+
+	<script>
+		(() => {
+			const STORAGE_KEY = 'putar.tiktokLinks.v1';
+			const homeView = document.querySelector('#home-view');
+			const settingsView = document.querySelector('#settings-view');
+			const feed = document.querySelector('#feed');
+			const emptyState = document.querySelector('#empty-state');
+			const videoList = document.querySelector('#video-list');
+			const listEmpty = document.querySelector('#list-empty');
+			const form = document.querySelector('#link-form');
+			const urlInput = document.querySelector('#tiktok-url');
+			const formMessage = document.querySelector('#form-message');
+			const savedCount = document.querySelector('#saved-count');
+
+			function sendPlayerCommand(frame, type) {
+				frame.contentWindow?.postMessage({ type, 'x-tiktok-player': true }, '*');
+			}
+
+			const feedObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+				entries.forEach(entry => {
+					const item = entry.target;
+					if (!entry.isIntersecting) {
+						delete item.dataset.isCurrent;
+						return;
+					}
+					item.dataset.isCurrent = 'true';
+					item.dataset.playerState = '1';
+					const frame = item.querySelector('iframe');
+					item.querySelector('.tap-target').setAttribute('aria-label', 'Jeda video');
+					feed.querySelectorAll('.feed-item').forEach(otherItem => {
+						if (otherItem === item) return;
+						otherItem.dataset.playerState = '2';
+						otherItem.querySelector('.tap-target').setAttribute('aria-label', 'Putar video');
+						const otherFrame = otherItem.querySelector('iframe');
+						sendPlayerCommand(otherFrame, 'pause');
+					});
+					sendPlayerCommand(frame, 'play');
+					sendPlayerCommand(frame, 'unMute');
+				});
+			}, { root: feed, threshold: 0.7 }) : null;
+			let videos = loadVideos();
+			let shuffledVideos = shuffle([...videos]);
+
+			function loadVideos() {
+				try {
+					const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+					return Array.isArray(saved) ? saved.filter(video => video && /^\d{8,25}$/.test(video.id) && typeof video.url === 'string') : [];
+				} catch {
+					return [];
+				}
+			}
+
+			function persistVideos() {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
+			}
+
+			function shuffle(items) {
+				for (let index = items.length - 1; index > 0; index -= 1) {
+					const randomIndex = Math.floor(Math.random() * (index + 1));
+					[items[index], items[randomIndex]] = [items[randomIndex], items[index]];
+				}
+				return items;
+			}
+
+			function videoIdFromUrl(value) {
+				let parsed;
+				try {
+					parsed = new URL(value);
+				} catch {
+					return null;
+				}
+				if (!/(^|\.)tiktok\.com$/i.test(parsed.hostname)) return null;
+				return parsed.pathname.match(/\/video\/(\d{8,25})/)?.[1] || null;
+			}
+
+			function showView(name) {
+				const isHome = name === 'home';
+				document.body.classList.toggle('is-home', isHome);
+				homeView.hidden = !isHome;
+				settingsView.hidden = isHome;
+				document.querySelectorAll('[data-view]').forEach(button => {
+					const active = button.dataset.view === name;
+					button.classList.toggle('is-active', active);
+					if (active) button.setAttribute('aria-current', 'page');
+					else button.removeAttribute('aria-current');
+				});
+				if (isHome && shuffledVideos.length) requestAnimationFrame(() => feed.scrollTo({ top: 0 }));
+			}
+
+			function render() {
+				feed.replaceChildren();
+				shuffledVideos.forEach((video, index) => {
+					const item = document.createElement('article');
+					item.className = 'feed-item';
+					item.dataset.videoId = video.id;
+					item.dataset.playerState = index === 0 ? '1' : '0';
+
+					const frame = document.createElement('iframe');
+					frame.className = 'video-frame';
+					frame.src = `https://www.tiktok.com/player/v1/${video.id}?controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&autoplay=${index === 0 ? 1 : 0}&muted=0`;
+					frame.title = `Video TikTok ${index + 1}`;
+					frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+					frame.loading = index === 0 ? 'eager' : 'lazy';
+					frame.addEventListener('load', () => {
+						if (item.dataset.playWhenReady === 'true') {
+							sendPlayerCommand(frame, 'play');
+							sendPlayerCommand(frame, 'unMute');
+						}
+						if (item.dataset.isCurrent === 'true') {
+							sendPlayerCommand(frame, 'play');
+							sendPlayerCommand(frame, 'unMute');
+						}
+					});
+
+					const tapTarget = document.createElement('button');
+					tapTarget.className = 'tap-target';
+					tapTarget.type = 'button';
+					tapTarget.setAttribute('aria-label', index === 0 ? 'Jeda video' : 'Putar video');
+					tapTarget.addEventListener('click', () => {
+						const isPlaying = item.dataset.playerState === '1';
+						item.dataset.playerState = isPlaying ? '2' : '1';
+						tapTarget.setAttribute('aria-label', isPlaying ? 'Putar video' : 'Jeda video');
+						sendPlayerCommand(frame, isPlaying ? 'pause' : 'play');
+						if (!isPlaying) sendPlayerCommand(frame, 'unMute');
+					});
+					item.append(frame, tapTarget);
+					feed.append(item);
+					feedObserver?.observe(item);
+				});
+
+				const hasVideos = videos.length > 0;
+				emptyState.hidden = hasVideos;
+				feed.hidden = !hasVideos;
+				videoList.replaceChildren();
+				videos.forEach(video => {
+					const row = document.createElement('li');
+					row.className = 'video-row';
+					const details = document.createElement('div');
+					details.className = 'video-details';
+					const label = document.createElement('strong');
+					label.textContent = `Video ${video.id}`;
+					const link = document.createElement('a');
+					link.href = video.url;
+					link.target = '_blank';
+					link.rel = 'noopener noreferrer';
+					link.textContent = 'Lihat link ↗';
+					details.append(label, link);
+					const remove = document.createElement('button');
+					remove.className = 'remove-button';
+					remove.type = 'button';
+					remove.dataset.removeId = video.id;
+					remove.setAttribute('aria-label', `Hapus video ${video.id}`);
+					remove.title = 'Hapus video';
+					remove.textContent = '×';
+					row.append(details, remove);
+					videoList.append(row);
+				});
+				listEmpty.hidden = hasVideos;
+				savedCount.textContent = `${videos.length} video tersimpan`;
+				document.querySelector('#collection-description').textContent = `${videos.length} video tersimpan di perangkat ini.`;
+			}
+
+			function playNextAfter(item) {
+				const items = [...feed.querySelectorAll('.feed-item')];
+				if (!items.length) return;
+				const currentIndex = items.indexOf(item);
+				const nextItem = items[(currentIndex + 1) % items.length];
+				nextItem.dataset.playWhenReady = 'true';
+				nextItem.dataset.playerState = '1';
+				nextItem.querySelector('.tap-target').setAttribute('aria-label', 'Jeda video');
+				nextItem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+				const nextFrame = nextItem.querySelector('iframe');
+					sendPlayerCommand(nextFrame, 'play');
+					sendPlayerCommand(nextFrame, 'unMute');
+			}
+
+			document.querySelectorAll('[data-view]').forEach(button => {
+				button.addEventListener('click', () => showView(button.dataset.view));
+			});
+			form.addEventListener('submit', event => {
+				event.preventDefault();
+				const url = urlInput.value.trim();
+				const id = videoIdFromUrl(url);
+				if (!id) {
+					formMessage.textContent = 'Link belum dikenali. Tempel link lengkap yang memuat /video/ID.';
+					formMessage.classList.add('is-error');
+					return;
+				}
+				if (videos.some(video => video.id === id)) {
+					formMessage.textContent = 'Video ini sudah ada di koleksimu.';
+					formMessage.classList.add('is-error');
+					return;
+				}
+				videos.push({ id, url });
+				persistVideos();
+				shuffledVideos = shuffle([...videos]);
+				render();
+				form.reset();
+				formMessage.textContent = 'Video ditambahkan ke beranda.';
+				formMessage.classList.remove('is-error');
+			});
+
+			videoList.addEventListener('click', event => {
+				const button = event.target.closest('[data-remove-id]');
+				if (!button) return;
+				videos = videos.filter(video => video.id !== button.dataset.removeId);
+				shuffledVideos = shuffle([...videos]);
+				persistVideos();
+				render();
+			});
+
+			window.addEventListener('message', event => {
+				if (!/\.tiktok\.com$/i.test(new URL(event.origin).hostname)) return;
+				let message = event.data;
+				if (typeof message === 'string') {
+					try { message = JSON.parse(message); } catch { return; }
+				}
+				if (!message || message['x-tiktok-player'] !== true || message.type !== 'onStateChange') return;
+				const state = message.data ?? message.value;
+				const frame = event.source;
+				const item = [...feed.querySelectorAll('.feed-item')].find(candidate => candidate.querySelector('iframe').contentWindow === frame);
+				if (!item) return;
+				item.dataset.playerState = String(state);
+				item.querySelector('.tap-target').setAttribute('aria-label', state === 1 || state === '1' ? 'Jeda video' : 'Putar video');
+				if (state === 0 || state === '0' || state === 'ended' || state === 'END') playNextAfter(item);
+			});
+
+			render();
+		})();
+	</script>
+</body>
+</html>
