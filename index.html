@@ -184,6 +184,39 @@
 				return /^\d{8,25}$/.test(directMatch) ? directMatch : null;
 			}
 
+			async function resolveVideoIdFromInput(value) {
+				const directId = videoIdFromUrl(value);
+				if (directId) return directId;
+
+				const normalized = normalizeTikTokUrl(value);
+				if (!normalized) return null;
+
+				let parsed;
+				try {
+					parsed = new URL(normalized);
+				} catch {
+					return null;
+				}
+
+				const isTikTokUrl = /(^|\.)tiktok\.com$/i.test(parsed.hostname);
+				if (!isTikTokUrl) return null;
+
+				try {
+					const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(normalized)}`;
+					const response = await fetch(oembedUrl, { credentials: 'omit' });
+					if (!response.ok) return null;
+
+					const data = await response.json();
+					const html = typeof data?.html === 'string' ? data.html : '';
+					const cite = typeof data?.cite === 'string' ? data.cite : '';
+					const idFromHtml = html.match(/(?:\/video\/|video\/)(\d{8,25})/i)?.[1];
+					const idFromCite = cite.match(/\/video\/(\d{8,25})/i)?.[1];
+					return idFromHtml || idFromCite || null;
+				} catch {
+					return null;
+				}
+			}
+
 			function showView(name) {
 				const isHome = name === 'home';
 				document.body.classList.toggle('is-home', isHome);
@@ -288,12 +321,12 @@
 			document.querySelectorAll('[data-view]').forEach(button => {
 				button.addEventListener('click', () => showView(button.dataset.view));
 			});
-			form.addEventListener('submit', event => {
+			form.addEventListener('submit', async event => {
 				event.preventDefault();
 				const url = urlInput.value.trim();
-				const id = videoIdFromUrl(url);
+				const id = await resolveVideoIdFromInput(url);
 				if (!id) {
-					formMessage.textContent = 'Link belum dikenali. Tempel link TikTok yang memuat ID video, misalnya /video/1234567890123456789 atau /v/1234567890123456789.html.';
+					formMessage.textContent = 'Link belum dikenali. Tempel link TikTok asli atau shortlink seperti https://vt.tiktok.com/ZSbqCCjTt/ yang bisa dibaca ke video id.';
 					formMessage.classList.add('is-error');
 					return;
 				}
